@@ -61,6 +61,11 @@ class SVParser {
 
   auto parse() -> UnwrapResult {
     parseLevel(TK::EndOfFile);
+    // EOF owns trailing trivia, including comments after the last statement.
+    // Keep it in the partition stream for every consumer of the unwrapper.
+    if (pos_ < tokens_.size() && at(TK::EndOfFile)) {
+      lines_.push_back({.tokens = {consume()}});
+    }
     return {
         .lines = std::move(lines_),
         .warnings = std::move(warnings_),
@@ -137,7 +142,7 @@ class SVParser {
     }
     consumeInto(line);
     int depth = 1;
-    while (pos_ < tokens_.size() && depth > 0) {
+    while (pos_ < tokens_.size() && !at(TK::EndOfFile) && depth > 0) {
       if (at(open)) {
         ++depth;
       } else if (at(close)) {
