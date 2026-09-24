@@ -275,3 +275,30 @@ TEST_F(LineJoinerTest, JoinsRepeatBody) {
             "    end\n"
             "endmodule\n");
 }
+
+TEST_F(LineJoinerTest, JoinsBodyContainingNestedTypeCast) {
+  EXPECT_EQ(formatText("if (a) f(int'(b));"), "if (a) f (int'(b));\n");
+}
+
+TEST_F(LineJoinerTest, JoinsVoidCastCallBody) {
+  EXPECT_EQ(formatText("if (a) void'(f());"), "if (a) void'(f ());\n");
+}
+
+TEST_F(LineJoinerTest, JoinsReturnWithTypeCast) {
+  EXPECT_EQ(formatText("if (a) return int'(x);"), "if (a) return int'(x);\n");
+}
+
+TEST_F(LineJoinerTest, JoinsReturnWithQualifiedTypeCast) {
+  EXPECT_EQ(formatText("if (a) return int signed'(x);"),
+            "if (a) return int signed'(x);\n");
+}
+
+TEST_F(LineJoinerTest, JoinsCaseLabelContainingAssignmentExpression) {
+  EXPECT_EQ(formatText("case (s) (a = b): x = 1; endcase"),
+            "case (s)\n  (a = b) : x = 1;\nendcase\n");
+}
+
+TEST_F(LineJoinerTest, JoinsCaseLabelContainingLessThanOrEqual) {
+  EXPECT_EQ(formatText("case (s) a <= b: x = 1; endcase"),
+            "case (s)\n  a <= b : x = 1;\nendcase\n");
+}
