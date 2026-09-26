@@ -61,8 +61,11 @@ TEST_F(PrinterTest, PreservesWhitespaceAroundInlineBlockComments) {
                        "assign z = a /*left*/b; assign w = a/*right*/ b; "
                        "assign v = a /*both*/ b; endmodule"),
             "module m (\n"
-            "); assign y = a/*tight*/b; assign z = a /*left*/b; "
-            "assign w = a/*right*/ b; assign v = a /*both*/ b;\n"
+            ");\n"
+            "  assign y  = a/*tight*/b;\n"
+            "  assign z  = a /*left*/b;\n"
+            "  assign w  = a/*right*/ b;\n"
+            "  assign v  = a /*both*/ b;\n"
             "endmodule\n");
 }
 

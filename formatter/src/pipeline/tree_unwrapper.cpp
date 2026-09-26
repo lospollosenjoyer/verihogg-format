@@ -126,6 +126,7 @@ class SVParser {
     if (line_.tokens.empty()) {
       return;
     }
+    line_.nesting_level = indent_level_;
     line_.indentation_spaces =
         startsWithCompilerDirective(line_)
             ? 0
@@ -196,7 +197,11 @@ class SVParser {
   auto parseUnsupportedConstruct() -> void {
     const Token start = peek();
     warnUnsupported(start, unsupportedConstructName(start));
+    const size_t first_line = lines_.size();
     consumeUntilSemi();
+    for (size_t i = first_line; i < lines_.size(); ++i) {
+      lines_.at(i).is_fallback = true;
+    }
   }
 
   auto warnIncompatibleConditional(Token tok) -> void {
