@@ -9,6 +9,7 @@
 #include "data/format_style.h"
 #include "data/format_token.h"
 #include "data/unwrapped_line.h"
+#include "pipeline/compiler_directives.h"
 
 namespace format {
 
@@ -22,9 +23,9 @@ using TriviaKind = slang::parsing::TriviaKind;
   size_t w = 0;
   for (size_t i = 0; i < line.tokens.size(); ++i) {
     if (i > 0) {
-      w += line.tokens[i].before.spaces_required;
+      w += line.tokens.at(i).before.spaces_required;
     }
-    w += line.tokens[i].token.rawText().size();
+    w += line.tokens.at(i).token.rawText().size();
   }
   return w;
 }
@@ -38,8 +39,16 @@ using TriviaKind = slang::parsing::TriviaKind;
          line.partition_policy == PartitionPolicy::kTabularAlignment;
 }
 
+[[nodiscard]] auto startsWithCompilerDirective(
+    const UnwrappedLine<FormatToken>& line) -> bool {
+  return !line.tokens.empty() && isCompilerDirective(line.tokens.front().token);
+}
+
 [[nodiscard]] auto isJoinable(const UnwrappedLine<FormatToken>& line) -> bool {
   if (line.tokens.empty()) {
+    return false;
+  }
+  if (startsWithCompilerDirective(line)) {
     return false;
   }
   if (line.partition_policy == PartitionPolicy::kAlreadyFormatted) {
@@ -74,7 +83,10 @@ using TriviaKind = slang::parsing::TriviaKind;
 
 [[nodiscard]] auto endsWithOpenBlock(const UnwrappedLine<FormatToken>& line)
     -> bool {
-  if (line.tokens.empty()) return false;
+  if (line.tokens.empty()) {
+    return false;
+  }
+
   const TK last = line.tokens.back().token.kind;
   return last == TK::BeginKeyword || last == TK::ForkKeyword;
 }
@@ -103,51 +115,53 @@ auto LineJoiner::join(std::vector<UnwrappedLine<FormatToken>>& lines) const
 
   size_t i = 0;
   while (i < lines.size()) {
-    UnwrappedLine<FormatToken> anchor = std::move(lines[i]);
+    UnwrappedLine<FormatToken> anchor = std::move(lines.at(i));
     const size_t anchor_indent = anchor.indentation_spaces;
     ++i;
 
     if (isJoinable(anchor) && !endsWithOpenBlock(anchor)) {
       while (i < lines.size()) {
-        const size_t next_indent = lines[i].indentation_spaces;
+        const size_t next_indent = lines.at(i).indentation_spaces;
 
         if (next_indent > anchor_indent) {
-          if (hasLeadingComment(lines[i])) {
+          if (hasLeadingComment(lines.at(i))) {
             break;
           }
-          if (isSimpleStatement(lines[i]) && isJoinable(lines[i])) {
-            if (lineWidth(anchor) + 1 + internalWidth(lines[i]) >
+          if (isSimpleStatement(lines.at(i)) && isJoinable(lines.at(i))) {
+            if (lineWidth(anchor) + 1 + internalWidth(lines.at(i)) >
                 st.column_limit) {
               break;
             }
-            absorb(anchor, lines[i++]);
+            absorb(anchor, lines.at(i++));
             continue;
           }
 
           break;
         }
 
-        if (next_indent == anchor_indent && !lines[i].tokens.empty() &&
-            lines[i].tokens.front().type == TokenType::kElseKeyword &&
-            !hasLeadingComment(lines[i])) {
+        if (next_indent == anchor_indent && !lines.at(i).tokens.empty() &&
+            lines.at(i).tokens.front().type == TokenType::kElseKeyword &&
+            !hasLeadingComment(lines.at(i))) {
           if (i + 1 >= lines.size()) {
             break;
           }
-          if (lines[i + 1].indentation_spaces <= anchor_indent) {
+          if (lines.at(i + 1).indentation_spaces <= anchor_indent) {
             break;
           }
-          if (hasLeadingComment(lines[i + 1])) {
+          if (hasLeadingComment(lines.at(i + 1))) {
             break;
           }
 
-          if (isSimpleStatement(lines[i + 1]) && isJoinable(lines[i + 1])) {
-            const size_t w = lineWidth(anchor) + 1 + internalWidth(lines[i]) +
-                             1 + internalWidth(lines[i + 1]);
+          if (isSimpleStatement(lines.at(i + 1)) &&
+              isJoinable(lines.at(i + 1))) {
+            const size_t w = lineWidth(anchor) + 1 +
+                             internalWidth(lines.at(i)) + 1 +
+                             internalWidth(lines.at(i + 1));
             if (w > st.column_limit) {
               break;
             }
-            absorb(anchor, lines[i++]);  // else [if (...)]
-            absorb(anchor, lines[i++]);  // body
+            absorb(anchor, lines.at(i++));  // else [if (...)]
+            absorb(anchor, lines.at(i++));  // body
             continue;
           }
 
