@@ -1,16 +1,19 @@
+#include "pipeline/line_joiner.h"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <functional>
 #include <limits>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
 #include "data/format_style.h"
 #include "data/lex_context.h"
 #include "formatter.h"
-#include "pipeline/line_joiner.h"
 #include "pipeline/policy_assigner.h"
 #include "pipeline/token_annotator.h"
 #include "pipeline/tree_unwrapper.h"
@@ -67,6 +70,41 @@ INSTANTIATE_TEST_SUITE_P(ProceduralAndLoopHeaders, SingleBodyHeaderTest,
                          ::testing::Values("always @(posedge clk)",
                                            "always_latch", "initial", "final",
                                            "forever", "foreach (a[i])"));
+
+// Exercise joining across independent syntax, trivia and style choices.
+auto forSupportedLayouts(
+    const std::function<void(std::string_view, const format::FormatStyle&)>&
+        check) -> void {
+  for (size_t indent : {0, 2, 4}) {
+    for (size_t width : {20, 40, 100}) {
+      for (const std::string header :
+           {"if (a)", "while (a)", "repeat (3)", "forever",
+            "for (int i = 0; i < 2; i++)", "foreach (a[i])", "label: if (a)"}) {
+        for (const std::string body :
+             {"x = 1;", "x = f(a[b], g(c));", ";", "if (b) f(c); else g(d);",
+              "begin f(a); end", "fork f(a); g(b); join",
+              "x = /*comment*/ f(a);", "x = f('{a: 1, b: '{2, 3}});"}) {
+          // Foreach requires a statement rather than a null statement.
+          if (header == "foreach (a[i])" && body == ";") {
+            continue;
+          }
+          for (const std::string gap :
+               {" ", "\n", "\n\n", " //header\n", " /*header*/ "}) {
+            std::string source = "module m; initial begin ";
+            source.append(header).append(gap).append(body).append(
+                "\nend endmodule");
+            auto style = format::FormatStyle::defaults();
+            style.indentation_spaces = indent;
+            style.column_limit = width;
+            SCOPED_TRACE("indent=" + std::to_string(indent) +
+                         " width=" + std::to_string(width) + "\n" + source);
+            check(source, style);
+          }
+        }
+      }
+    }
+  }
+}
 
 }  // namespace
 
@@ -663,4 +701,72 @@ TEST_F(LineJoinerTest, TrailingBlockCommentBeforeElseRemainsABarrier) {
 
 TEST_F(LineJoinerTest, KeepsUnsupportedBodySeparate) {
   EXPECT_EQ(formatText("if (a) wait (b) f();"), "if (a)\n  wait (b) f ();\n");
+}
+
+TEST_F(LineJoinerTest, SupportedJoiningPreservesTokensAndTrivia) {
+  const auto snapshot = [](const auto& lines) {
+    std::vector<std::tuple<bool, int, std::string>> result;
+    for (const auto& line : lines) {
+      for (const auto& ft : line.tokens) {
+        for (const auto& trivia : ft.token.trivia()) {
+          result.emplace_back(false, static_cast<int>(trivia.kind),
+                              trivia.getRawText());
+        }
+        result.emplace_back(true, static_cast<int>(ft.token.kind),
+                            ft.token.rawText());
+      }
+    }
+    return result;
+  };
+  forSupportedLayouts([&](std::string_view source, const auto& style) {
+    auto lines = annotated(source, style);
+    const auto before = snapshot(lines);
+    format::LineJoiner(style).join(lines);
+    EXPECT_EQ(snapshot(lines), before);
+  });
+}
+
+TEST_F(LineJoinerTest, SupportedJoiningPreservesBracketPartners) {
+  const auto partners = [](const auto& lines) {
+    std::vector<const format::FormatToken*> tokens;
+    for (const auto& line : lines) {
+      for (const auto& token : line.tokens) {
+        tokens.push_back(&token);
+      }
+    }
+    std::vector<size_t> result;
+    for (const auto* token : tokens) {
+      if (token->matching_bracket == nullptr) {
+        result.push_back(tokens.size());
+        continue;
+      }
+      const auto found = std::ranges::find(tokens, token->matching_bracket);
+      EXPECT_NE(found, tokens.end());
+      result.push_back(static_cast<size_t>(found - tokens.begin()));
+    }
+    return result;
+  };
+  forSupportedLayouts([&](std::string_view source, const auto& style) {
+    auto lines = annotated(source, style);
+    const auto before = partners(lines);
+    format::LineJoiner(style).join(lines);
+    EXPECT_EQ(partners(lines), before);
+  });
+}
+
+TEST_F(LineJoinerTest, SupportedJoiningIsIdempotent) {
+  const auto partitions = [](const auto& lines) {
+    std::vector<size_t> result;
+    for (const auto& line : lines) {
+      result.push_back(line.tokens.size());
+    }
+    return result;
+  };
+  forSupportedLayouts([&](std::string_view source, const auto& style) {
+    auto lines = annotated(source, style);
+    format::LineJoiner(style).join(lines);
+    const auto once = partitions(lines);
+    format::LineJoiner(style).join(lines);
+    EXPECT_EQ(partitions(lines), once);
+  });
 }
