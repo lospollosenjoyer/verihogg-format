@@ -757,6 +757,7 @@ TEST_F(LineJoinerTest, SupportedJoiningPreservesBracketPartners) {
 TEST_F(LineJoinerTest, SupportedJoiningIsIdempotent) {
   const auto partitions = [](const auto& lines) {
     std::vector<size_t> result;
+    result.reserve(lines.size());
     for (const auto& line : lines) {
       result.push_back(line.tokens.size());
     }
